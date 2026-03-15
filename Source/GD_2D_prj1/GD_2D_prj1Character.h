@@ -4,65 +4,106 @@
 
 #include "CoreMinimal.h"
 #include "PaperCharacter.h"
+#include "InputActionValue.h"          
+#include "InputMappingContext.h" 
 #include "GD_2D_prj1Character.generated.h"
 
 class UTextRenderComponent;
+class UPaperFlipbook;
+class UCameraComponent;
+class USpringArmComponent;
+class UInputAction;
 
-/**
- * This class is the default character for GD_2D_prj1, and it is responsible for all
- * physical interaction between the player and the world.
- *
- * The capsule component (inherited from ACharacter) handles collision with the world
- * The CharacterMovementComponent (inherited from ACharacter) handles movement of the collision capsule
- * The Sprite component (inherited from APaperCharacter) handles the visuals
- */
-UCLASS(config=Game)
+/** Enum to track character states */
+UENUM(BlueprintType)
+enum class ECharacterState : uint8
+{
+    Idle       UMETA(DisplayName = "Idle"),
+    Running    UMETA(DisplayName = "Running"),
+    Jumping    UMETA(DisplayName = "Jumping"),
+    Falling    UMETA(DisplayName = "Falling"),
+    Dead       UMETA(DisplayName = "Dead")
+};
+
+UCLASS(config = Game)
 class AGD_2D_prj1Character : public APaperCharacter
 {
-	GENERATED_BODY()
-
-	/** Side view camera */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Camera, meta=(AllowPrivateAccess="true"))
-	class UCameraComponent* SideViewCameraComponent;
-
-	/** Camera boom positioning the camera beside the character */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	class USpringArmComponent* CameraBoom;
-
-	UTextRenderComponent* TextComponent;
-	virtual void Tick(float DeltaSeconds) override;
-protected:
-	// The animation to play while running around
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category=Animations)
-	class UPaperFlipbook* RunningAnimation;
-
-	// The animation to play while idle (standing still)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Animations)
-	class UPaperFlipbook* IdleAnimation;
-
-	/** Called to choose the correct animation to play based on the character's movement state */
-	void UpdateAnimation();
-
-	/** Called for side to side input */
-	void MoveRight(float Value);
-
-	void UpdateCharacter();
-
-	/** Handle touch inputs. */
-	void TouchStarted(const ETouchIndex::Type FingerIndex, const FVector Location);
-
-	/** Handle touch stop event. */
-	void TouchStopped(const ETouchIndex::Type FingerIndex, const FVector Location);
-
-	// APawn interface
-	virtual void SetupPlayerInputComponent(class UInputComponent* InputComponent) override;
-	// End of APawn interface
+    GENERATED_BODY()
 
 public:
-	AGD_2D_prj1Character();
+    AGD_2D_prj1Character();
 
-	/** Returns SideViewCameraComponent subobject **/
-	FORCEINLINE class UCameraComponent* GetSideViewCameraComponent() const { return SideViewCameraComponent; }
-	/** Returns CameraBoom subobject **/
-	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+    UInputAction* IaMove;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+    UInputAction* IaJump;
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "EnhancedInput")
+    UInputMappingContext* InputMapping;
+
+    /** Returns SideViewCameraComponent subobject **/
+    FORCEINLINE class UCameraComponent* GetSideViewCameraComponent() const { return SideViewCameraComponent; }
+
+    /** Returns CameraBoom subobject **/
+    FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
+
+    /** Character’s current state */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
+    ECharacterState CharacterState;
+
+protected:
+    /** Side view camera */
+    virtual void BeginPlay() override;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+    UCameraComponent* SideViewCameraComponent;
+
+    /** Camera boom positioning the camera beside the character */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+    USpringArmComponent* CameraBoom;
+
+    /** Optional text component */
+    UTextRenderComponent* TextComponent;
+
+    /** Called every frame */
+    virtual void Tick(float DeltaSeconds) override;
+
+    /** Animation flipbooks */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Animations)
+    UPaperFlipbook* IdleAnimation;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Animations)
+    UPaperFlipbook* RunningAnimation;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Animations)
+    UPaperFlipbook* JumpingAnimation;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Animations)
+    UPaperFlipbook* FallingAnimation;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Animations)
+    UPaperFlipbook* DeadAnimation;
+
+    /** Update the animation based on the current state */
+    void UpdateAnimation(UPaperFlipbook* animation);
+
+    /** Side-to-side input */
+    void MoveRight(const FInputActionValue& Value);
+
+    /** Update rotation, movement, and facing direction */
+    void UpdateCharacter();
+
+    /** Handle touch inputs */
+    void TouchStarted(const ETouchIndex::Type FingerIndex, const FVector Location);
+    void TouchStopped(const ETouchIndex::Type FingerIndex, const FVector Location);
+
+    /** Setup player inputs */
+    virtual void SetupPlayerInputComponent(class UInputComponent* InputComponent) override;
+
+private:
+    /** Update the current state based on velocity or conditions */
+    void UpdateState();
+
+    /** Handle behavior and animations for the current state */
+    void HandleState();
 };

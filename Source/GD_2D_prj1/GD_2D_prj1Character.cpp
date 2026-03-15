@@ -5,6 +5,8 @@
 #include "Components/TextRenderComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/InputComponent.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
@@ -78,48 +80,59 @@ AGD_2D_prj1Character::AGD_2D_prj1Character()
 
 //////////////////////////////////////////////////////////////////////////
 // Animation
-
-void AGD_2D_prj1Character::UpdateAnimation()
+void AGD_2D_prj1Character::BeginPlay()
 {
-	const FVector PlayerVelocity = GetVelocity();
-	const float PlayerSpeedSqr = PlayerVelocity.SizeSquared();
+	Super::BeginPlay();
 
-	// Are we moving or standing still?
-	UPaperFlipbook* DesiredAnimation = (PlayerSpeedSqr > 0.0f) ? RunningAnimation : IdleAnimation;
-	if( GetSprite()->GetFlipbook() != DesiredAnimation 	)
+	// Add Input Mapping Context
+	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
 	{
-		GetSprite()->SetFlipbook(DesiredAnimation);
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
+		{
+			Subsystem->AddMappingContext(InputMapping, 0);
+		}
+	}
+}
+
+void AGD_2D_prj1Character::UpdateAnimation(UPaperFlipbook* animation)
+{
+	if (GetSprite()->GetFlipbook() != animation)
+	{
+		GetSprite()->SetFlipbook(animation);
 	}
 }
 
 void AGD_2D_prj1Character::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	
-	UpdateCharacter();	
+	// update the players state
+	UpdateState();
+	// update the state functionality
+	HandleState();
+	//UpdateCharacter();	
 }
+
 
 
 //////////////////////////////////////////////////////////////////////////
 // Input
 
-void AGD_2D_prj1Character::SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent)
+void AGD_2D_prj1Character::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-	// Note: the 'Jump' action and the 'MoveRight' axis are bound to actual keys/buttons/sticks in DefaultInput.ini (editable from Project Settings..Input)
-	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
-	PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
-	PlayerInputComponent->BindAxis("MoveRight", this, &AGD_2D_prj1Character::MoveRight);
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	PlayerInputComponent->BindTouch(IE_Pressed, this, &AGD_2D_prj1Character::TouchStarted);
-	PlayerInputComponent->BindTouch(IE_Released, this, &AGD_2D_prj1Character::TouchStopped);
+	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent))
+	{
+		EnhancedInput->BindAction(IaMove, ETriggerEvent::Triggered, this, &AGD_2D_prj1Character::MoveRight);
+		EnhancedInput->BindAction(IaJump, ETriggerEvent::Triggered, this, &ACharacter::Jump);
+		EnhancedInput->BindAction(IaJump, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+	}
 }
 
-void AGD_2D_prj1Character::MoveRight(float Value)
+void AGD_2D_prj1Character::MoveRight(const FInputActionValue& Value)
 {
-	/*UpdateChar();*/
-
-	// Apply the input to the character motion
-	AddMovementInput(FVector(1.0f, 0.0f, 0.0f), Value);
+	float AxisValue = Value.Get<float>(); // Extract the float from the InputActionValue
+	AddMovementInput(FVector(1.0f, 0.0f, 0.0f), AxisValue);
 }
 
 void AGD_2D_prj1Character::TouchStarted(const ETouchIndex::Type FingerIndex, const FVector Location)
@@ -137,7 +150,7 @@ void AGD_2D_prj1Character::TouchStopped(const ETouchIndex::Type FingerIndex, con
 void AGD_2D_prj1Character::UpdateCharacter()
 {
 	// Update animation to match the motion
-	UpdateAnimation();
+	//UpdateAnimation();
 
 	// Now setup the rotation of the controller based on the direction we are travelling
 	const FVector PlayerVelocity = GetVelocity();	
@@ -153,5 +166,64 @@ void AGD_2D_prj1Character::UpdateCharacter()
 		{
 			Controller->SetControlRotation(FRotator(0.0f, 0.0f, 0.0f));
 		}
+	}
+}
+void AGD_2D_prj1Character::UpdateState()
+{
+	const FVector PlayerVelocity = GetVelocity();
+	float HorizontalSpeed = FMath::Abs(PlayerVelocity.X);
+
+	switch (CharacterState)
+	{
+	case ECharacterState::Idle:
+		if (PlayerVelocity.Z > 0.1) CharacterState = ECharacterState::Jumping;
+		else if (HorizontalSpeed > 0.1) CharacterState = ECharacterState::Running;
+		break;
+
+	case ECharacterState::Running:
+		if (PlayerVelocity.Z > 0.1) CharacterState = ECharacterState::Jumping;
+		else if (PlayerVelocity.Z < -0.1) CharacterState = ECharacterState::Falling;
+		else if (HorizontalSpeed < 0.1) CharacterState = ECharacterState::Idle;
+		break;
+
+	case ECharacterState::Jumping:
+		if (PlayerVelocity.Z < -0.1) CharacterState = ECharacterState::Falling;
+		else if (PlayerVelocity.Z < 0.1) CharacterState = ECharacterState::Idle;
+		break;
+
+	case ECharacterState::Falling:
+		if (FMath::Abs(PlayerVelocity.Z) < 0.1) CharacterState = ECharacterState::Idle;
+		break;
+
+	case ECharacterState::Dead:
+		break;
+	}
+}
+void AGD_2D_prj1Character::HandleState()
+{
+	switch (CharacterState)
+	{
+	case ECharacterState::Idle:
+		UpdateAnimation(IdleAnimation);
+		break;
+
+	case ECharacterState::Running:
+		UpdateAnimation(RunningAnimation);
+		UpdateCharacter();  // Handles movement
+		break;
+
+	case ECharacterState::Jumping:
+		UpdateAnimation(JumpingAnimation);
+		UpdateCharacter();
+		break;
+
+	case ECharacterState::Falling:
+		UpdateAnimation(FallingAnimation);
+		UpdateCharacter();
+		break;
+
+	case ECharacterState::Dead:
+		UpdateAnimation(DeadAnimation);
+		break;
 	}
 }
