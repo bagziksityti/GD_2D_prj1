@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "GD_2D_prj1Character.h"
+#include "EnhancedInputSubsystems.h"
 #include "PaperFlipbookComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -8,7 +9,10 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "PickUpActor.h"
 #include "Camera/CameraComponent.h"
+
+
 
 DEFINE_LOG_CATEGORY_STATIC(SideScrollerCharacter, Log, All);
 
@@ -21,6 +25,12 @@ AGD_2D_prj1Character::AGD_2D_prj1Character()
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = true;
 	bUseControllerRotationRoll = false;
+	Inventory = CreateDefaultSubobject<UInventory>(TEXT("Inventory"));
+
+	GetCapsuleComponent()->OnComponentBeginOverlap.AddDynamic(
+		this,
+		&AGD_2D_prj1Character::OnOverlapBegin
+	);
 
 	// Set the size of our collision capsule.
 	GetCapsuleComponent()->SetCapsuleHalfHeight(96.0f);
@@ -78,7 +88,37 @@ AGD_2D_prj1Character::AGD_2D_prj1Character()
 
 //////////////////////////////////////////////////////////////////////////
 // Animation
+void AGD_2D_prj1Character::CoyoteJump()
+{
+	if (GetCharacterMovement()->IsMovingOnGround() || bCanUseCoyoteTime)
+	{
+		// Reset Coyote Time
+		bCanUseCoyoteTime = false;
+		TimeSinceLeftGround = 0.0f;
 
+		// Perform the jump
+		LaunchCharacter(FVector(0.f, 0.f, GetCharacterMovement()->JumpZVelocity), false, true);
+	}
+}
+void AGD_2D_prj1Character::UpdateCoyoteTime(float DeltaTime)
+{
+	if (!GetCharacterMovement()->IsMovingOnGround())
+	{
+		TimeSinceLeftGround += DeltaTime;
+		bCanUseCoyoteTime = (TimeSinceLeftGround <= CoyoteTimeDuration);
+	}
+	else
+	{
+		TimeSinceLeftGround = 0.0f;
+		bCanUseCoyoteTime = false;
+	}
+}
+void AGD_2D_prj1Character::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+	TimeSinceLeftGround = 0.0f;
+	bCanUseCoyoteTime = false;
+}
 void AGD_2D_prj1Character::UpdateAnimation()
 {
 	const FVector PlayerVelocity = GetVelocity();
@@ -96,7 +136,8 @@ void AGD_2D_prj1Character::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	
-	UpdateCharacter();	
+	UpdateCharacter();
+	UpdateCoyoteTime(DeltaSeconds);
 }
 
 
@@ -105,27 +146,54 @@ void AGD_2D_prj1Character::Tick(float DeltaSeconds)
 
 void AGD_2D_prj1Character::SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent)
 {
-	// Note: the 'Jump' action and the 'MoveRight' axis are bound to actual keys/buttons/sticks in DefaultInput.ini (editable from Project Settings..Input)
-	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
-	PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
-	PlayerInputComponent->BindAxis("MoveRight", this, &AGD_2D_prj1Character::MoveRight);
+	// 1. Get the Player Controller
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (PC)
+	{
+		// 2. Get the Enhanced Input Local Player Subsystem
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+		{
+			// 3. Add the Mapping Context
+			if (InputMapping)
+			{
+				Subsystem->ClearAllMappings();
+				Subsystem->AddMappingContext(InputMapping, 0);
+			}
+		}
+	}
 
-	PlayerInputComponent->BindTouch(IE_Pressed, this, &AGD_2D_prj1Character::TouchStarted);
-	PlayerInputComponent->BindTouch(IE_Released, this, &AGD_2D_prj1Character::TouchStopped);
+	// 4. Bind the Actions
+	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent))
+	{
+		// Movement
+		if (IaMove)
+		{
+			EnhancedInput->BindAction(IaMove, ETriggerEvent::Triggered, this, &AGD_2D_prj1Character::MoveRight);
+		}
+
+		// Jump (Standard Character Jump)
+		if (IaJump)
+		{
+			EnhancedInput->BindAction(IaJump, ETriggerEvent::Started, this, &AGD_2D_prj1Character::CoyoteJump);
+			EnhancedInput->BindAction(IaJump, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		}
+	}
 }
 
-void AGD_2D_prj1Character::MoveRight(float Value)
+void AGD_2D_prj1Character::MoveRight(const FInputActionValue& Value)
 {
 	/*UpdateChar();*/
 
 	// Apply the input to the character motion
-	AddMovementInput(FVector(1.0f, 0.0f, 0.0f), Value);
+	float MovementValue = Value.Get<float>();
+
+	AddMovementInput(FVector(1.f, 0.f, 0.f), MovementValue);
 }
 
 void AGD_2D_prj1Character::TouchStarted(const ETouchIndex::Type FingerIndex, const FVector Location)
 {
 	// Jump on any touch
-	Jump();
+	CoyoteJump();
 }
 
 void AGD_2D_prj1Character::TouchStopped(const ETouchIndex::Type FingerIndex, const FVector Location)
@@ -155,3 +223,66 @@ void AGD_2D_prj1Character::UpdateCharacter()
 		}
 	}
 }
+void AGD_2D_prj1Character::OnOverlapBegin(
+	UPrimitiveComponent* OverlappedComp,
+	AActor* OtherActor,
+	UPrimitiveComponent* OtherComp,
+	int32 OtherBodyIndex,
+	bool bFromSweep,
+	const FHitResult& SweepResult)
+{
+	UE_LOG(LogTemp, Warning, TEXT("Overlapped"));
+
+	if (!OtherActor || OtherActor == this) return;
+
+	// Print all tags
+	for (const FName& Tag : OtherActor->Tags)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Collided with tag: %s"), *Tag.ToString());
+	}
+
+	// === PICKUP LOGIC ===
+	if (OtherActor->ActorHasTag("Pickup"))
+	{
+		APickUpActor* Pickup = Cast<APickUpActor>(OtherActor);
+		if (Pickup && Pickup->PickUpAsset)
+		{
+			bool success = Inventory->AddItem(Pickup->PickUpAsset->ItemName);
+			UE_LOG(LogTemp, Warning,
+				TEXT("Was the item added to inventory: %s : %s"),
+				*Pickup->PickUpAsset->ItemName,
+				success ? TEXT("true") : TEXT("false"));
+
+			Pickup->Destroy();
+		}
+	}
+
+	// === ENEMY LOGIC ===
+	if (OtherActor->ActorHasTag("Enemy"))
+	{
+		if (Inventory && Inventory->CheckHasItem("HolyWater", 1))
+		{
+			// Remove one Holy Water
+			bool removed = Inventory->RemoveItem("HolyWater", 1);
+
+			// Destroy skeleton
+			OtherActor->Destroy();
+
+			int remaining = Inventory->GetQuantityOfItem("HolyWater");
+			UE_LOG(LogTemp, Warning,
+				TEXT("Destroyed skeleton using Holy Water! Holy Water left: %d, removed successfully: %s"),
+				remaining, removed ? TEXT("true") : TEXT("false"));
+		}
+		else
+		{
+			// Player does not have Holy Water: bounce back
+			FVector BounceDirection = GetActorLocation() - OtherActor->GetActorLocation();
+			BounceDirection.Normalize();
+			FVector Impulse = BounceDirection * 2500.0f;
+			GetCharacterMovement()->AddImpulse(Impulse, true);
+
+			UE_LOG(LogTemp, Warning, TEXT("Hit skeleton without Holy Water! Bouncing back."));
+		}
+	}
+}
+
