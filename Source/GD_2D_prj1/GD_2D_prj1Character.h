@@ -6,6 +6,8 @@
 #include "PaperCharacter.h"
 #include "InputActionValue.h"          
 #include "InputMappingContext.h" 
+#include "Components/PrimitiveComponent.h"
+#include "Inventory.h"
 #include "GD_2D_prj1Character.generated.h"
 
 class UTextRenderComponent;
@@ -32,6 +34,9 @@ class AGD_2D_prj1Character : public APaperCharacter
 
 public:
     AGD_2D_prj1Character();
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerAttributes|Inventory")
+    UInventory* Inventory;
 
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
@@ -99,6 +104,15 @@ protected:
 
     /** Setup player inputs */
     virtual void SetupPlayerInputComponent(class UInputComponent* InputComponent) override;
+    UFUNCTION()
+    void OnOverlapBegin(
+        UPrimitiveComponent* OverlappedComp,
+        AActor* OtherActor,
+        UPrimitiveComponent* OtherComp,
+        int32 OtherBodyIndex,
+        bool bFromSweep,
+        const FHitResult& SweepResult
+    );
 
 private:
     /** Update the current state based on velocity or conditions */

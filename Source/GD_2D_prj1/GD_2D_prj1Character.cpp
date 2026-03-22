@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "GD_2D_prj1Character.h"
 #include "PaperFlipbookComponent.h"
@@ -76,6 +76,16 @@ AGD_2D_prj1Character::AGD_2D_prj1Character()
 	// Enable replication on the Sprite component so animations show up when networked
 	GetSprite()->SetIsReplicated(true);
 	bReplicates = true;
+	// Enable overlap events
+	GetCapsuleComponent()->SetGenerateOverlapEvents(true);
+
+	// Bind overlap event
+	GetCapsuleComponent()->OnComponentBeginOverlap.AddDynamic(
+		this,
+		&AGD_2D_prj1Character::OnOverlapBegin
+	);
+	Inventory = CreateDefaultSubobject<UInventory>(TEXT("Inventory"));
+
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -225,5 +235,38 @@ void AGD_2D_prj1Character::HandleState()
 	case ECharacterState::Dead:
 		UpdateAnimation(DeadAnimation);
 		break;
+	}
+}
+void AGD_2D_prj1Character::OnOverlapBegin(
+	UPrimitiveComponent* OverlappedComp,
+	AActor* OtherActor,
+	UPrimitiveComponent* OtherComp,
+	int32 OtherBodyIndex,
+	bool bFromSweep,
+	const FHitResult& SweepResult)
+{
+	if (OtherActor && (OtherActor != this))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Overlap detected"));
+
+		// Print tags (debug)
+		for (const FName& Tag : OtherActor->Tags)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Tag: %s"), *Tag.ToString());
+		}
+
+		// ENEMY COLLISION
+		if (OtherActor->ActorHasTag("Enemy"))
+		{
+			// Calculate bounce direction
+			FVector BounceDirection = GetActorLocation() - OtherActor->GetActorLocation();
+			BounceDirection.Normalize();
+
+			// Apply force
+			FVector Impulse = BounceDirection * 2500.0f;
+
+			// Push player
+			GetCharacterMovement()->AddImpulse(Impulse, true);
+		}
 	}
 }
