@@ -2,6 +2,7 @@
 
 #include "PickUpActor.h"
 #include "Components/BoxComponent.h"
+#include "GD_2D_prj1/GD_2D_prj1Character.h"
 #include "PaperSpriteComponent.h"
 
 
@@ -54,7 +55,19 @@ void APickUpActor::OnBeginOverlap(UPrimitiveComponent* OverlappedComponent,
 {
 	if (OtherActor && OtherActor != this)
 	{
-		Destroy();
+		// Cast to player
+		AGD_2D_prj1Character* Player = Cast<AGD_2D_prj1Character>(OtherActor);
+
+		if (Player && Player->Inventory && PickUpAsset)
+		{
+			// Add item to player inventory
+			Player->Inventory->AddItem(PickUpAsset->ItemName);
+
+			UE_LOG(LogTemp, Warning, TEXT("Picked up: %s"), *PickUpAsset->ItemName);
+
+			// Destroy pickup
+			Destroy();
+		}
 	}
 }
 

@@ -10,6 +10,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "Inventory.h"
 #include "Camera/CameraComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(SideScrollerCharacter, Log, All);
@@ -85,6 +86,7 @@ AGD_2D_prj1Character::AGD_2D_prj1Character()
 		&AGD_2D_prj1Character::OnOverlapBegin
 	);
 	Inventory = CreateDefaultSubobject<UInventory>(TEXT("Inventory"));
+
 
 }
 
@@ -258,15 +260,25 @@ void AGD_2D_prj1Character::OnOverlapBegin(
 		// ENEMY COLLISION
 		if (OtherActor->ActorHasTag("Enemy"))
 		{
-			// Calculate bounce direction
-			FVector BounceDirection = GetActorLocation() - OtherActor->GetActorLocation();
-			BounceDirection.Normalize();
+			if (Inventory && Inventory->CheckHasItem("HolyWater"))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("Used HolyWater on Enemy"));
 
-			// Apply force
-			FVector Impulse = BounceDirection * 2500.0f;
+				Inventory->RemoveItem("HolyWater");
 
-			// Push player
-			GetCharacterMovement()->AddImpulse(Impulse, true);
+				OtherActor->Destroy();
+			}
+			else
+			{
+				FVector BounceDirection = GetActorLocation() - OtherActor->GetActorLocation();
+				BounceDirection.Normalize();
+
+				FVector Impulse = BounceDirection * 2500.0f;
+
+				GetCharacterMovement()->AddImpulse(Impulse, true);
+
+				UE_LOG(LogTemp, Warning, TEXT("No HolyWater - player pushed"));
+			}
 		}
 	}
 }
